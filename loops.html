@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <title>Loop Player</title>
+    <style>
+        div.container {
+            width: 100%
+        }
+
+        .element {
+            width: 100%;
+        }
+
+        .ctrlButton {
+            width: 30%;
+        }
+
+        body,
+        select,
+        button {
+            font-size: 4vh
+        }
+
+        .slidecontainer {
+            width: 100%;
+            /* Width of the outside container */
+        }
+
+        /* The slider itself */
+        .slider {
+            -webkit-appearance: none;
+            /* Override default CSS styles */
+            appearance: none;
+            width: 100%;
+            /* Full-width */
+            height: 25px;
+            /* Specified height */
+            background: #d3d3d3;
+            /* Grey background */
+            outline: none;
+            /* Remove outline */
+            opacity: 0.7;
+            /* Set transparency (for mouse-over effects on hover) */
+            -webkit-transition: .2s;
+            /* 0.2 seconds transition on hover */
+            transition: opacity .2s;
+        }
+
+        /* Mouse-over effects */
+        .slider:hover {
+            opacity: 1;
+            /* Fully shown on mouse-over */
+        }
+
+        /* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            /* Override default look */
+            appearance: none;
+            width: 25px;
+            /* Set a specific slider handle width */
+            height: 25px;
+            /* Slider handle height */
+            background: #4CAF50;
+            /* Green background */
+            cursor: pointer;
+            /* Cursor on hover */
+        }
+
+        .slider::-moz-range-thumb {
+            width: 25px;
+            /* Set a specific slider handle width */
+            height: 25px;
+            /* Slider handle height */
+            background: #4CAF50;
+            /* Green background */
+            cursor: pointer;
+            /* Cursor on hover */
+        }
+    </style>
+    <script type="text/javascript">
+        var source = null, gainNode = null, context = null;
+        var listNameValue = 0
+        var listName = null, loopList = null
+
+        function onPageLoad() {
+            if (typeof (Storage) !== "undefined") {
+                if (localStorage.getItem("loops.listNameValue") != null) {
+                    listNameValue = localStorage.getItem("loops.listNameValue")
+                }
+                if (localStorage.getItem("loops.volume") != null) {
+                    document.getElementById("myRange").value = localStorage.getItem("loops.volume");
+                }
+                onGainChange();
+            }
+
+            listName = document.getElementById('listName')
+            loopList = document.getElementById('loopList')
+            getData()
+        }
+
+        function onGainChange() {
+            if (typeof (Storage) !== "undefined") {
+                localStorage.setItem("loops.volume", document.getElementById("myRange").value);
+            }
+            document.getElementById('volumeLevel').innerText = document.getElementById("myRange").value + "%";
+            if (gainNode != null) {
+                gainNode.gain.value = document.getElementById("myRange").value / 100
+            }
+        }
+
+        function onchangeloop() {
+            if (document.getElementById('playButton').innerHTML == '<i class="fa fa-stop"></i>') {
+                toggleLoop() // to stop the loop playing
+                toggleLoop() // start the new loop
+            }
+        }
+
+        function onchangelist() {
+            if (typeof (Storage) !== "undefined") {
+                localStorage.setItem("loops.listNameValue", listName.selectedIndex);
+            }
+            while (loopList.options.length > 0) {
+                loopList.remove(0);
+            }
+            jsonData[listName.selectedIndex]['listUrls'].forEach(element => {
+                var option = document.createElement("option");
+                option.text = element['name'];
+                option.value = element['value'];
+                loopList.add(option)
+            });
+            loopList.selectedIndex = 0
+            onchangeloop()
+        }
+
+        function toggleLoop() {
+            if (document.getElementById('playButton').innerHTML == '<i class="fa fa-hand-stop-o"></i>') {
+                return
+            }
+            if (document.getElementById('playButton').innerHTML == '<i class="fa fa-stop"></i>') {
+                if (source != null) {
+                    source.stop(0);
+                    source = null;
+                }
+                document.getElementById('playButton').innerHTML = '<i class="fa fa-play"></i>'
+                return;
+            }
+
+            var url = document.getElementById('loopList').value;
+
+            //create the context
+            if (context == null) {
+                context = new AudioContext();
+                gainNode = context.createGain();
+                gainNode.gain.value = document.getElementById("myRange").value / 100
+            }
+
+            //and the source
+            source = context.createBufferSource();
+
+            //connect it to the destination so you can hear it.
+            source.connect(gainNode).connect(context.destination);
+
+            // load buffer
+            var request = new XMLHttpRequest();
+
+            //open the request
+            request.open('GET', url, true);
+
+            //webaudio paramaters
+            request.responseType = 'arraybuffer';
+
+            //Once the request has completed... do this
+            request.onload = function () {
+                context.decodeAudioData(request.response, function (response) {
+                    // --- play the sound AFTER the buffer loaded
+                    //set the buffer to the response we just received
+                    source.buffer = response;
+                    //start(0) should play asap.
+                    source.start(0);
+                    source.loop = true;
+                    document.getElementById('playButton').innerHTML = '<i class="fa fa-stop"></i>'
+                }, function () { console.error('The request failed.'); });
+            }
+
+            document.getElementById('playButton').innerHTML = '<i class="fa fa-hand-stop-o"></i>'
+            //Now that the request has been defined, actually make the request. (send it)
+            request.send();
+        }
+
+        function moveTrack(direction){
+            if ( loopList.selectedIndex + direction > -1 && loopList.selectedIndex + direction < loopList.options.length ) {
+                loopList.selectedIndex += direction
+                onchangeloop()
+            }
+        }
+
+        function getData() {
+            const apiUrl = '/loop-db.json'
+
+            fetch(apiUrl)
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error, status = ${response.status}`);
+                    }
+                    return response.text();
+                })
+                .then((text) => {
+                    jsonData = JSON.parse(text)
+                    buildPage()
+                })
+                .catch((error) => {
+                    jsonData = '[{"listName": "Error '+error+'", "listUrls": []}]'
+                    buildPage();
+                });
+        }
+
+        function buildPage() {
+            if (jsonData == null) {
+                return;
+            }
+            jsonData.forEach(element => {
+                var option = document.createElement("option");
+                option.text = element['listName'];
+                listName.add(option)
+            });
+
+            listName.selectedIndex = listNameValue
+            onchangelist()
+        }
+    </script>
+</head>
+
+<body onload="onPageLoad()">
+    <div class="w3-container w3-teal">
+        <h3>Loop Player</h3>
+    </div>
+    <div id="mainScreen">
+        <h2>Volume: <span id="volumeLevel"></span></h2>
+        <div class="slidecontainer">
+            <input type="range" min="1" max="100" value="30" class="slider" id="myRange" onchange="onGainChange()">
+        </div>
+
+        <div class="element">
+            <h2>List Name:</h2>
+            <select id="listName" class="element" onchange="onchangelist()"></select>
+        </div>
+
+        <div class="element">
+            <h2>List Parts:</h2>
+            <select id="loopList" class="element" onchange="onchangeloop()"></select>
+        </div>
+        <div class="element"><center>
+            <button id="rewindButton" onclick="moveTrack(-1)" class="ctrlButton"><i class="fa fa-backward"></i></button>
+            <button id="playButton" onclick="toggleLoop()" class="ctrlButton"><i class="fa fa-play"></i></button>
+            <button id="forwardButton" onclick="moveTrack(1)" class="ctrlButton"><i class="fa fa-forward"></i></button>
+        </center></div>
+    </div>
+</body>
+
+</html>

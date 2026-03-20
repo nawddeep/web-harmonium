@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        input[type=text],
+        input[type=date],
+        input[type=tel],
+        select,
+        textarea,
+        .formelement {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+        }
+
+        label {
+            padding: 12px 12px 12px 0;
+            display: inline-block;
+        }
+
+        .greenButton {
+            background-color: #04AA6D;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            float: right;
+        }
+
+        .redButton {
+            background-color: red;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            float: right;
+        }
+
+        .greenButton:hover {
+            background-color: #45a049;
+        }
+
+        .container {
+            border-radius: 5px;
+            background-color: #f2f2f2;
+            padding: 20px;
+            display: none;
+        }
+
+        .col-25 {
+            float: left;
+            width: 25%;
+            margin-top: 6px;
+        }
+
+        .col-75 {
+            float: left;
+            width: 75%;
+            margin-top: 6px;
+        }
+
+        /* Clear floats after the columns */
+        .row:after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+
+        /* Responsive layout - when the screen is less than 600px wide, make the two columns stack on top of each other instead of next to each other */
+        @media screen and (max-width: 600px) {
+
+            .col-25,
+            .col-75,
+            .button {
+                width: 100%;
+                margin-top: 0;
+            }
+        }
+
+        .error {
+            color: red
+        }
+
+        th {
+            background-color: silver;
+            border: 1px solid darkslategray;
+        }
+
+        td {
+            border: 1px solid silver;
+        }
+    </style>
+
+    <script type="text/javascript">
+        // Just constants for db access
+        let un = 0 //username
+        let lo = 1 //userlocation
+        let fd = 0 //fromdate
+        let td = 1 //todate
+        let fc = 2 //fromchapter
+        let tc = 3 //tochapter
+
+        let topics = [
+            'Vaishnava Samhita',
+            'Brindavana Mahatmyam',
+            'Srimad Bhagavatham',
+            'Ramayanam',
+            'Sundarakandam',
+            'Bhagavad Gita'
+        ]
+        let chapters = [
+            [24, 26, 23, 25, 20, 25, 24, 22, 22, 24],
+            [10, 14, 15, 24, 22, 21, 12, 16, 20, 12],
+            [19, 10, 33, 31, 26, 19, 15, 24, 24, 90, 31, 13],
+            [76, 119, 75, 67, 68, 128],
+            [68],
+            [18]
+        ]
+
+        //element objects
+        var newuserform = null
+        var existinguserform = null
+        var showdataform = null
+        var userdropdown = null
+        var topicdropdown = null
+        var fullname = null
+        var userlocation = null
+        var fromdate = null
+        var todate = null
+        var datarowno = null
+        var errorblock = null
+        var fromchapter = null
+        var tochapter = null
+        var sheetdata = null
+
+        //db
+        var userlist = null
+        var userdata = null
+        var currentuser = -1
+        var currenttopic = 0
+
+        function register() {
+            if (fullname.value.trim().length > 0 && userlocation.value.trim().length > 1) {
+                ++currentuser
+                userlist[currentuser] = []
+                userlist[currentuser][un] = fullname.value
+                userlist[currentuser][lo] = userlocation.value
+                userdata[currentuser] = []
+                for (i = 0; i < topics.length; ++i) {
+                    userdata[currentuser][i] = []
+                }
+                setStorage('userlist', JSON.stringify(userlist))
+                setStorage('userdata', JSON.stringify(userdata))
+                setStorage('currentuser', currentuser)
+                setStorage('currenttopic', currenttopic)
+                newuserform.style.display = 'none'
+                errorblock.style.display = 'none'
+                document.getElementById('cancelStart').style.display = 'block'
+                //reload page
+                onpageload()
+            } else {
+                errorblock.style.display = "block"
+                errorblock.innerText = ""
+                if (fullname.value.trim().length <= 0) {
+                    errorblock.innerText += "Give atleast 1 character full name\n"
+                }
+
+                if (userlocation.value.trim().length <= 1) {
+                    errorblock.innerText += "Give atleast 2 character location"
+                }
+            }
+        }
+
+        function deleteUser() {
+            if (currentuser > -1 && confirm('Sure?!\nDelete user: ' + userlist[currentuser][un] + '?\n\nNote: All local data will be lost!')) {
+                userdata.splice(currentuser, 1)
+                userlist.splice(currentuser, 1)
+                if (userlist.length > 0) {
+                    currentuser = 0
+                } else {
+                    currentuser = -1
+                }
+                setStorage('userlist', JSON.stringify(userlist))
+                setStorage('userdata', JSON.stringify(userdata))
+                setStorage('currentuser', currentuser)
+                onpageload()
+            }
+        }
+
+        function pullData(force = false) {
+            if (sheetdata == null || force == true) {
+                var apiUrl = 'https://sheets.googleapis.com/v4/spreadsheets/1JqnSyJgPqsftN0q8TWcIehFiZd_-eUVxE2Cwu5LMg_M/values/Sheet1?alt=json&key=AIzaSyDr58mLD6Gyn_l3P4wYl6bW-EbwRfXyZ9I'
+                fetch(apiUrl).then(response => {
+                    return response.json();
+                }).then(data => {
+                    sheetdata = data
+                    onuserchanged()
+                }).catch(err => {
+                    console.error('Failed to pull data', err);
+                });
+            }
+        }
+
+        function saveValues() {
+            console.log("Saving...")
+            // Validations
+            var format = "00-00"
+            let todayDate = (new Date()).toISOString().split('T')[0]
+            var regex = /^(\d{2})-(\d{2})$/
+            console.log(topics[currenttopic])
+            if (topics[currenttopic] == 'Ramayanam') {
+                regex = /^(\d{2})-(\d{3})$/
+                format = "00-000"
+            }
+            errorblock.innerText = ""
+            if (!regex.test(fromchapter.value)) {
+                errorblock.innerText += "Invalid 'From Chapter' value. It should be in the format " + format + ". \n"
+            }
+            if (!regex.test(tochapter.value)) {
+                errorblock.innerText += "Invalid 'To Chapter' value. It should be in the format " + format + ". \n"
+            }
+            if (fromdate.value > todayDate) {
+                errorblock.innerText += "From date cannot be greater than today's date. \n"
+            }
+            if (todate.value > todayDate) {
+                errorblock.innerText += "To date cannot be greater than today's date. \n"
+            }
+            if (fromdate.value > todate.value) {
+                errorblock.innerText += "From Date cannot be greater than To date. \n"
+            }
+            if (fromchapter.value > tochapter.value) {
+                errorblock.innerText += "From Chapter cannot be greater than To Chapter. \n"
+            }
+
+            if (errorblock.innerText == "") {
+                const frommatch = fromchapter.value.match(regex);
+                const tomatch = tochapter.value.match(regex);
+                iFromCanto = parseInt(frommatch[1])
+                iFromChapter = parseInt(frommatch[2])
+                iToCanto = parseInt(tomatch[1])
+                iToChapter = parseInt(tomatch[2])
+
+                if (iFromCanto < 1 || iFromCanto > chapters[currenttopic].length) {
+                    errorblock.innerText += "From Chapter: Canto " + iFromCanto + " does not exists. \n"
+                } else if (iFromChapter < 1 || iFromChapter > chapters[currenttopic][iFromCanto - 1]) {
+                    errorblock.innerText += "From Chapter: In canto " + iFromCanto + ", Chapter " + iFromChapter + " does not exists! \n"
+                }
+                if (iToCanto < 1 || iToCanto > chapters[currenttopic].length) {
+                    errorblock.innerText += "To Chapter: Canto " + iToCanto + " does not exists. \n"
+                } else if (iToChapter < 1 || iToChapter > chapters[currenttopic][iToCanto - 1]) {
+                    errorblock.innerText += "To Chapter: In canto " + iToCanto + ", Chapter " + iToChapter + " does not exists! \n"
+                }
+            }
+
+            if (errorblock.innerText != "") {
+                errorblock.style.display = 'block'
+                return
+            }
+
+            let pos = (datarowno.value == "") ? userdata[currentuser][currenttopic].length : parseInt(datarowno.value)
+            console.log("position is", pos)
+            userdata[currentuser][currenttopic][pos] = [fromdate.value, todate.value, fromchapter.value, tochapter.value]
+            setStorage('userdata', JSON.stringify(userdata))
+            buildtable()
+            showdataform.style.display = 'block'
+            existinguserform.style.display = 'none'
+            errorblock.style.display = 'none'
+        }
+
+        function deleterow(i) {
+            if (confirm('Delete this row?')) {
+                userdata[currentuser][currenttopic].splice(i, 1);
+                setStorage('userdata', JSON.stringify(userdata))
+                buildtable()
+            }
+        }
+
+        function getStorage(varname) {
+            var returnVar
+            if (typeof (Storage) !== "undefined") {
+                returnVar = localStorage.getItem(varname)
+            }
+            console.log(varname, 'stored value is', returnVar)
+            return returnVar
+        }
+
+        function setStorage(varname, varvalue) {
+            if (typeof (Storage) !== "undefined") {
+                console.log('setting ', varname, 'as', varvalue)
+                localStorage.setItem(varname, varvalue)
+            }
+        }
+
+        function buildtable() {
+            var showdatatable = "<center><table cellspacing=0 cellpadding=3><tr><th>From Date</th><th>To Date</th><th>From Chapter</th><th>To Chapter</th><th colspan=2>Actions</th></tr>"
+            for (i = userdata[currentuser][currenttopic].length - 1; i > -1; --i) {
+                showdatatable += "<tr><td>" + userdata[currentuser][currenttopic][i][fd] + "</td><td>" + userdata[currentuser][currenttopic][i][td] + "</td><td>" + userdata[currentuser][currenttopic][i][fc] + "</td><td>" + userdata[currentuser][currenttopic][i][tc] + "</td><td><button onclick='showUpdateForm(" + i + ")'>✏️</button></td><td><button onclick='deleterow(" + i + ")'>🗑️</button></td></tr>"
+            }
+            if (userdata[currentuser][currenttopic].length == 0) {
+                showdatatable += "<tr><td colspan=6>No data available</td></tr>"
+            }
+            showdatatable += "</table></center>"
+            document.getElementById('showdatatable').innerHTML = showdatatable
+        }
+
+        function onuserchanged() {
+            if (currentuser == -1 || userdropdown.selectedIndex == -1) {
+                return
+            }
+            console.log('onuserchanged()', userdropdown.selectedIndex)
+
+            if (userdropdown.selectedIndex >= userlist.length) {
+                // Add New user
+                fullname.value = ""
+                userlocation.value = ""
+
+                newuserform.style.display = 'block'
+                showdataform.style.display = 'none'
+            } else {
+                currentuser = userdropdown.selectedIndex
+                setStorage('currentuser', currentuser)
+                console.log(userlist[currentuser])
+                buildtable()
+            }
+        }
+
+        function ontopicchanged() {
+            console.log('ontopicchanged()', topicdropdown.selectedIndex)
+            currenttopic = topicdropdown.selectedIndex
+            console.log(topics[currentuser])
+            setStorage('currenttopic', currenttopic)
+            buildtable()
+        }
+
+        function populateTopicDropDown() {
+            topicdropdown.innerHTML = ""
+            for (i = 0; i < topics.length; ++i) {
+                var option = document.createElement("option");
+                option.text = topics[i];
+                topicdropdown.add(option);
+            }
+            topicdropdown.selectedIndex = currenttopic
+        }
+
+        function populateUserDropDown() {
+            userdropdown.innerHTML = ""
+            for (i = 0; i < userlist.length; ++i) {
+                if (userlist[i].length == 2) {
+                    var option = document.createElement("option");
+                    option.text = userlist[i][un] + " (" + userlist[i][lo] + ")";
+                    userdropdown.add(option)
+                }
+            }
+            var option = document.createElement("option");
+            option.text = 'Add New User';
+            userdropdown.add(option)
+            userdropdown.selectedIndex = currentuser
+        }
+
+        function onpageload() {
+            if (newuserform == null) {
+                console.log("onpageload")
+                pullData()
+                newuserform = document.getElementById('newuser')
+                existinguserform = document.getElementById('existinguser')
+                errorblock = document.getElementById('error')
+                showdataform = document.getElementById('showdata')
+                fullname = document.getElementById('fullname')
+                userlocation = document.getElementById('userlocation')
+                userdropdown = document.getElementById('userdropdown')
+                topicdropdown = document.getElementById('topicdropdown')
+                fromdate = document.getElementById('fromdate');
+                todate = document.getElementById('todate');
+                fromchapter = document.getElementById('fromchapter');
+                tochapter = document.getElementById('tochapter');
+                datarowno = document.getElementById('datarowno')
+
+                currentuser = getStorage('currentuser')
+                currenttopic = getStorage('currenttopic')
+                if (currenttopic == null) {
+                    currenttopic = 0
+                }
+                populateTopicDropDown()
+
+                var userlistJson = getStorage('userlist')
+                var userdataJson = getStorage('userdata')
+                if (userlistJson == null) {
+                    userlist = [[]]
+                } else {
+                    userlist = JSON.parse(userlistJson)
+                    console.log('userlist', userlist)
+                }
+                if (userdataJson == null) {
+                    userdata = [[]]
+                } else {
+                    userdata = JSON.parse(userdataJson)
+                    console.log('userdata', userdata)
+                }
+                if (currentuser == null) {
+                    currentuser = -1
+                }
+            }
+
+            if (currentuser == -1) {
+                newuserform.style.display = 'block'
+                showdataform.style.display = 'none'
+                existinguserform.style.display = 'none'
+                document.getElementById('cancelStart').style.display = 'none'
+                return
+            }
+
+            showdataform.style.display = 'block'
+            populateUserDropDown()
+            onuserchanged()
+        }
+
+        function showUpdateForm(i = -1) {
+            document.getElementById('displayfullname').value = userlist[currentuser][un]
+            document.getElementById('displaylocation').value = userlist[currentuser][lo]
+            document.getElementById('displaytopic').value = topics[currenttopic]
+
+            errorblock.style.display = 'none'
+            datarowno.value = ""
+            if (i == -1) {
+                let todayDate = (new Date()).toISOString().split('T')[0]
+                var lastrow = null
+                if (userdata[currentuser][currenttopic].length > 0) {
+                    lastrow = userdata[currentuser][currenttopic][userdata[currentuser][currenttopic].length - 1]
+                }
+                console.log('lastrow', lastrow)
+                var lasttodate = null
+                if (lastrow != null) {
+                    lasttodate = lastrow[td]
+                }
+                if (lasttodate == null || lasttodate == "") {
+                    lasttodate = todayDate
+                } else {
+                    lasttodate = (new Date(Date.parse(lasttodate) + 1000 * 60 * 60 * 24)).toISOString().split('T')[0];
+                    if (lasttodate > todayDate) {
+                        lasttodate = todayDate
+                    }
+                }
+                console.log('lasttodate', lasttodate)
+                fromdate.value = lasttodate
+                todate.value = todayDate
+                var lasttochapter = null
+                if (lastrow != null) {
+                    lasttochapter = lastrow[tc]
+                }
+                padlen = 2
+                var regex = /^(\d{2})-(\d{2})$/
+                if (topics[currenttopic] == 'Ramayanam') {
+                    regex = /^(\d{2})-(\d{3})$/
+                    padlen = 3
+                }
+                if (lasttochapter == null || lasttochapter == "") {
+                    lasttochapter = "01-" + String(1).padStart(padlen, '0')
+                } else {
+                    const match = lasttochapter.match(regex);
+                    iCanto = parseInt(match[1])
+                    iChapter = parseInt(match[2])
+                    iChapter++
+                    if (iChapter > chapters[currenttopic][iCanto - 1]) {
+                        iChapter = 1
+                        iCanto++
+                        if (iCanto > chapters[currenttopic].length) {
+                            iCanto = 1
+                        }
+                    }
+                    lasttochapter = String(iCanto).padStart(padlen, '0') + "-" + String(iChapter).padStart(padlen, '0')
+                }
+                console.log('lasttochapter', lasttochapter)
+                fromchapter.value = lasttochapter
+                tochapter.value = ""
+            } else {
+                fromdate.value = userdata[currentuser][currenttopic][i][fd]
+                todate.value = userdata[currentuser][currenttopic][i][td]
+                fromchapter.value = userdata[currentuser][currenttopic][i][fc]
+                tochapter.value = userdata[currentuser][currenttopic][i][tc]
+                datarowno.value = i
+            }
+            showdataform.style.display = 'none'
+            existinguserform.style.display = 'block'
+            tochapter.focus()
+        }
+    </script>
+</head>
+
+<body onload="onpageload()">
+
+    <center>
+        <h2> Parayanam Tracker </h2>
+    </center>
+
+    <div id="error" class="container error">
+
+    </div>
+
+    <div id="newuser" class="container">
+        <p> Register and participate </p>
+        <div class="row">
+            <div class="col-25">
+                <label for="fullname">Full Name</label>
+            </div>
+            <div class="col-75">
+                <input type="text" id="fullname" name="fullname" placeholder="Your full name..">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="userlocation">Location</label>
+            </div>
+            <div class="col-75">
+                <input type="text" id="userlocation" name="userlocation" placeholder="Your location..">
+            </div>
+        </div>
+        <br />
+        <div class="row">
+            <button class="button greenButton" onclick="register()">Start</button>
+            <button id="cancelStart" class="button redButton"
+                onclick="showdataform.style.display = 'block'; newuserform.style.display = 'none'; userdropdown.selectedIndex = currentuser">Cancel</button>
+        </div>
+    </div>
+
+    <div id="showdata" class="container">
+        <div class="row">
+            <button class="button redButton" onclick="deleteUser()">Delete User</button>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="userdropdown">Users</label>
+            </div>
+            <div class="col-75">
+                <select id="userdropdown" name="userdropdown" onchange="onuserchanged()">
+                </select>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="topicdropdown">Topics</label>
+            </div>
+            <div class="col-75">
+                <select id="topicdropdown" name="topicdropdown" onchange="ontopicchanged()">
+                </select>
+            </div>
+        </div>
+        <br />
+        <div class="row">
+            <div style="overflow-x:auto;" id="showdatatable">
+            </div>
+        </div>
+        <br />
+        <div class="row">
+            <button class="button greenButton" onclick="showUpdateForm()">Update</button>
+        </div>
+    </div>
+
+    <div id="existinguser" class="container">
+        <p> Update what you have completed so far </p>
+        <input type="hidden" id="datarowno" name="datarowno">
+        <div class="row">
+            <div class="col-25">
+                <label for="displayfullname">Full Name</label>
+            </div>
+            <div class="col-75">
+                <input type="text" id="displayfullname" name="displayfullname" readonly>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="displaylocation">Location</label>
+            </div>
+            <div class="col-75">
+                <input type="text" id="displaylocation" name="displaylocation" readonly>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="displaytopic">Topic</label>
+            </div>
+            <div class="col-75">
+                <input type="text" id="displaytopic" name="displaytopic" readonly>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="fromdate">From Date</label>
+            </div>
+            <div class="col-75">
+                <input type="date" id="fromdate" name="fromdate">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="todate">To Date</label>
+            </div>
+            <div class="col-75">
+                <input type="date" id="todate" name="todate">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="fromchapter">From Volume-Chapter</label>
+            </div>
+            <div class="col-75">
+                <input type="tel" id="fromchapter" name="fromchapter" required>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-25">
+                <label for="tochapter">To Volume-Chapter</label>
+            </div>
+            <div class="col-75">
+                <input type="tel" id="tochapter" name="tochapter" required>
+            </div>
+        </div>
+        <br />
+        <div class="row">
+            <button class="button greenButton" onclick="saveValues()">Update</button>
+            <button class="button redButton"
+                onclick="showdataform.style.display = 'block'; existinguserform.style.display = 'none'; errorblock.style.display = 'none'">Cancel</button>
+        </div>
+    </div>
+</body>
+
+</html>
